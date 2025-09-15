@@ -11,7 +11,7 @@ import torchvision.transforms as transforms
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 from torch.utils.tensorboard import SummaryWriter # Salva "log" da aprendizagem
-
+import math
 import Config_Parametros
 import Carregar_Banco
 
@@ -154,40 +154,53 @@ def validation(dataloader, model, loss_fn):
     print(f"    Acurácia percentual: {(100*acuracia):>0.1f}%")
     return acuracia
 
+melhor_acuracia = -math.inf  # Começamos com um valor muito baixo (infinito negativo)
 total_sem_melhora = 0
+
 # Loop que passa todas as imagens várias vezes pela quantidade de épocas
 for t in range(Config_Parametros.epocas):
     print(f"-------------------------------")
     print(f"Época {t+1}\n-------------------------------")
     train(train_dataloader, model, funcao_perda, otimizador)
     acuracia_val = validation(val_dataloader, model, funcao_perda)
-    if acuracia_val > acuracia_val+Config_Parametros.tolerancia:
-        torch.save(model.state_dict(), "modelo_treinado.pth")
-        total_sem_melhora = 0
+
+    # LÓGICA CORRIGIDA: Compara a acurácia atual com a melhor já registrada
+    if acuracia_val > melhor_acuracia:
+        print(f"\n>>> Acurácia melhorou ({melhor_acuracia:.3f} --> {acuracia_val:.3f}). Salvando modelo...")
+        melhor_acuracia = acuracia_val  # Atualiza a melhor acurácia
+        torch.save(model.state_dict(), "modelo_treinado.pth") # Salva o modelo
+        total_sem_melhora = 0 # Reseta o contador de paciência
     else:
-        total_sem_melhora+=1
-    if total_sem_melhora > Config_Parametros.paciencia:
-        print(f"Acabou a paciência com {t+1} épocas ")
+        total_sem_melhora += 1
+        print(f"\n>>> Acurácia não melhorou. Paciência: {total_sem_melhora}/{Config_Parametros.paciencia}")
+
+    # Condição de parada antecipada
+    if total_sem_melhora >= Config_Parametros.paciencia:
+        print(f"\nParada antecipada na época {t+1}! O modelo não melhora há {Config_Parametros.paciencia} épocas.")
         break
+
 print("Terminou a fase de aprendizagem !")
 
 """
     CARREGA A REDE NEURAL TREINADA ANTERIORMENTE
 """
-model = NeuralNetwork()
+model = NeuralNetwork().to(device) # Cria uma nova instância do modelo na GPU/CPU
 model.load_state_dict(torch.load("modelo_treinado.pth"))
 
 """
     CLASSIFICA UMA IMAGEM
 """
-def classifica_uma_imagem(model,x,y):
+def classifica_uma_imagem(model, x, y):
     model.eval()
     with torch.no_grad():
+       # Adicione a linha abaixo para mover o tensor da imagem para a GPU/CPU
+       x = x.to(device)
+       
        x = x.unsqueeze(0)
        pred = model(x)
        predita, real = labels_map[int(pred[0].argmax(0))], labels_map[y]
        print(f'Predita: "{predita}", Real: "{real}"')
-    return(predita)
+    return predita
 
 figure = plt.figure(figsize=(10, 10))
 cols, rows = 3, 4
